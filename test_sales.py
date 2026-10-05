@@ -91,12 +91,76 @@ class SalesTestCase(unittest.TestCase):
             "invoice_number": "INV-NOAUTH-01",
             "invoice_date": "2026-09-29",
             "total_amount": 500.00,
-            "customer_name": "Anita"
+            "customer_name": "Anita",
+            "customer_phone": "9876543210"
         }
         res = self.client.post("/api/v1/sales", json=payload)  # No Bearer header
         self.assertEqual(res.status_code, 401)
         self.assertEqual(res.json["code"], 401)
         self.assertEqual(res.json["error"], "Authorization Required")
 
+    def test_missing_customer_phone(self):
+        payload = {
+            "invoice_number": "INV-NOPHONE-01",
+            "invoice_date": "2026-09-29",
+            "total_amount": 500.00,
+            "customer_name": "Anita"
+        }
+        res = self.client.post("/api/v1/sales", json=payload, headers=self.headers)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json["message"], "customer_phone is required.")
+
+    def test_bulk_create_sales_success(self):
+        payload = {
+            "sales": [
+                {
+                    "invoice_number": f"INV-BULK-{i}",
+                    "invoice_date": "2026-09-29",
+                    "total_amount": 100.0 + i,
+                    "customer_name": f"Customer {i}",
+                    "customer_phone": "9876543210"
+                }
+                for i in range(1, 10)
+            ]
+        }
+        res = self.client.post("/api/v1/sales/bulk", json=payload, headers=self.headers)
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.json["code"], 201)
+        self.assertEqual(res.json["data"]["created_count"], 9)
+
+    def test_bulk_create_sales_exceeds_limit(self):
+        payload = {
+            "sales": [
+                {
+                    "invoice_number": f"INV-OVER-{i}",
+                    "invoice_date": "2026-09-29",
+                    "total_amount": 100.0,
+                    "customer_name": f"Customer {i}",
+                    "customer_phone": "9876543210"
+                }
+                for i in range(1, 502)  # 501 items (> 500)
+            ]
+        }
+        res = self.client.post("/api/v1/sales/bulk", json=payload, headers=self.headers)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Maximum 500 records allowed per request", res.json["message"])
+
+    def test_bulk_create_sales_missing_phone(self):
+        payload = {
+            "sales": [
+                {
+                    "invoice_number": "INV-BULK-FAIL",
+                    "invoice_date": "2026-09-29",
+                    "total_amount": 500.0,
+                    "customer_name": "No Phone User"
+                }
+            ]
+        }
+        res = self.client.post("/api/v1/sales/bulk", json=payload, headers=self.headers)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json["failed_count"], 1)
+        self.assertIn("customer_phone is required.", res.json["details"][0]["errors"])
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -181,7 +181,7 @@ Creates a new sale transaction record linked to the authenticated user.
 | `invoice_date` | **Yes** | String | Format: `YYYY-MM-DD` |
 | `total_amount` | **Yes** | Numeric | Greater than 0, rounded to 2 decimal places. |
 | `customer_name` | **Yes** | String | Non-empty text string. |
-| `customer_phone` | Optional | String | Must be **exactly 10 digits** (`^\d{10}$`). |
+| `customer_phone` | **Yes** | String | Must be **exactly 10 digits** (`^\d{10}$`). |
 | `created_updated_timestamp` | Optional | String | Timestamp string e.g. `YYYY-MM-DD HH:MM:SS` or `YYYY-MM-DDTHH:MM:SS`. |
 
 #### Success Response (`201 Created`)
@@ -216,11 +216,11 @@ Creates a new sale transaction record linked to the authenticated user.
   }
   ```
 
-- **400 Bad Request** (Invalid Phone Number):
+- **400 Bad Request** (Missing/Invalid Phone Number):
   ```json
   {
     "code": 400,
-    "message": "customer_phone must be a valid 10-digit number.",
+    "message": "customer_phone is required.",
     "error": "Validation Error"
   }
   ```
@@ -242,6 +242,99 @@ Creates a new sale transaction record linked to the authenticated user.
     "error": "Token Revoked"
   }
   ```
+
+---
+
+### 2. Create Bulk Sales Entries (Max 500 Records)
+
+Batch inserts up to **500 sales entries** in a single transaction.
+
+- **Endpoint**: `POST /api/v1/sales/bulk`
+- **Auth Required**: Yes (`Authorization: Bearer <token>`)
+
+#### Request Body
+```json
+{
+  "sales": [
+    {
+      "invoice_number": "INV-2026-010",
+      "invoice_date": "2026-09-29",
+      "total_amount": 1500.50,
+      "customer_name": "John Doe",
+      "customer_phone": "9876543210",
+      "created_updated_timestamp": "2026-09-29 17:10:00"
+    },
+    {
+      "invoice_number": "INV-2026-011",
+      "invoice_date": "2026-09-29",
+      "total_amount": 2200.00,
+      "customer_name": "Jane Smith",
+      "customer_phone": "9123456789"
+    }
+  ]
+}
+```
+
+#### Batch Constraints & Limits
+- **Maximum Records**: 500 items in `sales` array.
+- **Mandatory Fields**: `invoice_number`, `invoice_date`, `total_amount`, `customer_name`, and `customer_phone` (10 digits).
+- **Atomic Validation**: If any item fails validation or contains duplicate invoice numbers (within request or DB), the request returns `400 Bad Request` with itemized error details.
+
+#### Success Response (`201 Created`)
+```json
+{
+  "code": 201,
+  "message": "Successfully created 2 sales entries in bulk.",
+  "data": {
+    "created_count": 2,
+    "sales": [
+      {
+        "id": "e9b5a8d4-53a8-4e89-9400-b6f123456789",
+        "invoice_number": "INV-2026-010",
+        "invoice_date": "2026-09-29",
+        "total_amount": "1500.50",
+        "customer_name": "John Doe",
+        "customer_phone": "9876543210",
+        "created_updated_timestamp": "2026-09-29 17:10:00",
+        "user_id": "13492a1c-e9f1-4837-a49c-7098fdff1033",
+        "username": "admin"
+      }
+    ]
+  }
+}
+```
+
+#### Error Responses
+
+- **400 Bad Request** (Limit Exceeded > 500 records):
+  ```json
+  {
+    "code": 400,
+    "message": "Bulk creation limit exceeded. Maximum 500 records allowed per request (received 501).",
+    "error": "Validation Error"
+  }
+  ```
+
+- **400 Bad Request** (Itemized Validation Failure):
+  ```json
+  {
+    "code": 400,
+    "message": "Validation failed for one or more sales entries.",
+    "error": "Validation Error",
+    "failed_count": 1,
+    "total_submitted": 2,
+    "details": [
+      {
+        "index": 1,
+        "invoice_number": "INV-2026-011",
+        "errors": [
+          "customer_phone is required."
+        ]
+      }
+    ]
+  }
+  ```
+
 
 ---
 
