@@ -37,93 +37,54 @@ def create_sale():
 
     data = request.get_json(silent=True) or {}
 
-    invoice_number = str(data.get("invoice_number", "")).strip()
-    invoice_date_str = str(data.get("invoice_date", "")).strip()
+    invoice_number = str(data.get("invoice_number", "")).strip() if data.get("invoice_number") else None
+    invoice_date_str = str(data.get("invoice_date", "")).strip() if data.get("invoice_date") else None
     total_amount_raw = data.get("total_amount")
-    customer_name = str(data.get("customer_name", "")).strip()
-    customer_phone = str(data.get("customer_phone", "")).strip()
-    timestamp_str = str(data.get("created_updated_timestamp", "")).strip()
+    customer_name = str(data.get("customer_name", "")).strip() if data.get("customer_name") else None
+    customer_phone = str(data.get("customer_phone", "")).strip() if data.get("customer_phone") else None
+    timestamp_str = str(data.get("created_updated_timestamp", "")).strip() if data.get("created_updated_timestamp") else None
 
-    # 1. Validate required fields presence
-    if not invoice_number:
-        return jsonify({
-            "code": 400,
-            "message": "invoice_number is required.",
-            "error": "Validation Error"
-        }), 400
+    # --- VALIDATIONS COMMENTED OUT TO ACCEPT WHATEVER DATA COMES ---
+    # # 1. Validate required fields presence
+    # if not invoice_number:
+    #     return jsonify({"code": 400, "message": "invoice_number is required.", "error": "Validation Error"}), 400
+    # if not invoice_date_str:
+    #     return jsonify({"code": 400, "message": "invoice_date is required.", "error": "Validation Error"}), 400
+    # if total_amount_raw is None or total_amount_raw == "":
+    #     return jsonify({"code": 400, "message": "total_amount is required.", "error": "Validation Error"}), 400
+    # if not customer_name:
+    #     return jsonify({"code": 400, "message": "customer_name is required.", "error": "Validation Error"}), 400
 
-    if not invoice_date_str:
-        return jsonify({
-            "code": 400,
-            "message": "invoice_date is required.",
-            "error": "Validation Error"
-        }), 400
+    # # 2. Check for duplicate invoice number
+    # existing_sale = Sale.query.filter_by(invoice_number=invoice_number).first()
+    # if existing_sale:
+    #     return jsonify({"code": 409, "message": f"Invoice number '{invoice_number}' already exists.", "error": "Duplicate Entry"}), 409
 
-    if total_amount_raw is None or total_amount_raw == "":
-        return jsonify({
-            "code": 400,
-            "message": "total_amount is required.",
-            "error": "Validation Error"
-        }), 400
+    # # 3. Validate mandatory customer phone number format (must be 10 digits)
+    # if not customer_phone:
+    #     return jsonify({"code": 400, "message": "customer_phone is required.", "error": "Validation Error"}), 400
+    # if not re.match(r"^\d{10}$", customer_phone):
+    #     return jsonify({"code": 400, "message": "customer_phone must be a valid 10-digit number.", "error": "Validation Error"}), 400
 
-    if not customer_name:
-        return jsonify({
-            "code": 400,
-            "message": "customer_name is required.",
-            "error": "Validation Error"
-        }), 400
+    # 4. Parse invoice date (fallback to today if invalid/missing)
+    parsed_invoice_date = None
+    if invoice_date_str:
+        try:
+            parsed_invoice_date = datetime.strptime(invoice_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    if not parsed_invoice_date:
+        parsed_invoice_date = datetime.now().date()
 
-    # 2. Check for duplicate invoice number
-    existing_sale = Sale.query.filter_by(invoice_number=invoice_number).first()
-    if existing_sale:
-        return jsonify({
-            "code": 409,
-            "message": f"Invoice number '{invoice_number}' already exists.",
-            "error": "Duplicate Entry"
-        }), 409
+    # 5. Parse total_amount (fallback to 0.00 if invalid/missing)
+    parsed_total_amount = Decimal("0.00")
+    if total_amount_raw is not None and total_amount_raw != "":
+        try:
+            parsed_total_amount = Decimal(str(total_amount_raw)).quantize(Decimal("0.01"))
+        except (InvalidOperation, TypeError, ValueError):
+            pass
 
-    # 3. Validate mandatory customer phone number format (must be 10 digits)
-    if not customer_phone:
-        return jsonify({
-            "code": 400,
-            "message": "customer_phone is required.",
-            "error": "Validation Error"
-        }), 400
-
-    if not re.match(r"^\d{10}$", customer_phone):
-        return jsonify({
-            "code": 400,
-            "message": "customer_phone must be a valid 10-digit number.",
-            "error": "Validation Error"
-        }), 400
-
-    # 4. Validate invoice date format (YYYY-MM-DD)
-    try:
-        parsed_invoice_date = datetime.strptime(invoice_date_str, "%Y-%m-%d").date()
-    except ValueError:
-        return jsonify({
-            "code": 400,
-            "message": "invoice_date must be in YYYY-MM-DD format.",
-            "error": "Validation Error"
-        }), 400
-
-    # 5. Validate total_amount format (decimal floating point)
-    try:
-        total_amount = Decimal(str(total_amount_raw)).quantize(Decimal("0.01"))
-        if total_amount <= Decimal("0"):
-            return jsonify({
-                "code": 400,
-                "message": "total_amount must be greater than zero.",
-                "error": "Validation Error"
-            }), 400
-    except (InvalidOperation, TypeError, ValueError):
-        return jsonify({
-            "code": 400,
-            "message": "total_amount must be a valid numeric decimal value.",
-            "error": "Validation Error"
-        }), 400
-
-    # 6. Validate client timestamp format (YYYY-MM-DD HH:MM:SS or ISO YYYY-MM-DDTHH:MM:SS)
+    # 6. Parse client timestamp
     parsed_client_timestamp = None
     if timestamp_str:
         allowed_formats = [
@@ -139,19 +100,12 @@ def create_sale():
             except ValueError:
                 continue
 
-        if not parsed_client_timestamp:
-            return jsonify({
-                "code": 400,
-                "message": "created_updated_timestamp must be in a valid format (e.g. 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DDTHH:MM:SS').",
-                "error": "Validation Error"
-            }), 400
-
     # Create new Sale record
     new_sale = Sale(
-        invoice_number=invoice_number,
+        invoice_number=invoice_number or f"INV-AUTO-{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
         invoice_date=parsed_invoice_date,
-        total_amount=total_amount,
-        customer_name=customer_name,
+        total_amount=parsed_total_amount,
+        customer_name=customer_name or "N/A",
         customer_phone=customer_phone,
         created_updated_timestamp=parsed_client_timestamp,
         user_id=user.id,
@@ -159,7 +113,15 @@ def create_sale():
     )
 
     db.session.add(new_sale)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "code": 409,
+            "message": f"Invoice number '{new_sale.invoice_number}' already exists or violates constraints.",
+            "error": "Duplicate Entry"
+        }), 409
 
     return jsonify({
         "code": 201,
@@ -167,7 +129,7 @@ def create_sale():
         "data": {
             "id": str(new_sale.id),
             "invoice_number": new_sale.invoice_number,
-            "invoice_date": new_sale.invoice_date.strftime("%Y-%m-%d"),
+            "invoice_date": new_sale.invoice_date.strftime("%Y-%m-%d") if new_sale.invoice_date else None,
             "total_amount": str(new_sale.total_amount),
             "customer_name": new_sale.customer_name,
             "customer_phone": new_sale.customer_phone,
@@ -185,20 +147,7 @@ def create_sales_bulk():
     POST /api/v1/sales/bulk
     Requires Bearer Token authentication.
     Accepts up to 500 sales records per request.
-    
-    Expected JSON Body:
-    {
-        "sales": [
-            {
-                "invoice_number": "INV-1001",
-                "invoice_date": "2026-09-29",
-                "total_amount": 1500.50,
-                "customer_name": "John Doe",
-                "customer_phone": "9876543210",
-                "created_updated_timestamp": "2026-09-29 17:10:00"
-            }, ...
-        ]
-    }
+    Validations commented out to accept whatever data comes.
     """
     current_user_id = get_jwt_identity()
     user = db.session.get(User, current_user_id)
@@ -235,17 +184,7 @@ def create_sales_bulk():
             "error": "Validation Error"
         }), 400
 
-    # Collect invoice numbers present in current payload to detect duplicates within batch
-    payload_invoices = set()
-    errors = []
     validated_sales = []
-
-    # Pre-fetch existing invoice numbers from DB for items in payload
-    invoices_in_req = [str(item.get("invoice_number", "")).strip() for item in sales_data if item.get("invoice_number")]
-    existing_db_invoices = set()
-    if invoices_in_req:
-        existing_records = db.session.query(Sale.invoice_number).filter(Sale.invoice_number.in_(invoices_in_req)).all()
-        existing_db_invoices = {rec.invoice_number for rec in existing_records}
 
     allowed_formats = [
         "%Y-%m-%d %H:%M:%S",
@@ -255,64 +194,59 @@ def create_sales_bulk():
     ]
 
     for idx, item in enumerate(sales_data):
-        item_errors = []
-
         if not isinstance(item, dict):
-            errors.append({"index": idx, "errors": ["Item must be a JSON object."]})
             continue
 
-        invoice_number = str(item.get("invoice_number", "")).strip()
-        invoice_date_str = str(item.get("invoice_date", "")).strip()
+        invoice_number = str(item.get("invoice_number", "")).strip() if item.get("invoice_number") else None
+        invoice_date_str = str(item.get("invoice_date", "")).strip() if item.get("invoice_date") else None
         total_amount_raw = item.get("total_amount")
-        customer_name = str(item.get("customer_name", "")).strip()
-        customer_phone = str(item.get("customer_phone", "")).strip()
-        timestamp_str = str(item.get("created_updated_timestamp", "")).strip()
+        customer_name = str(item.get("customer_name", "")).strip() if item.get("customer_name") else None
+        customer_phone = str(item.get("customer_phone", "")).strip() if item.get("customer_phone") else None
+        timestamp_str = str(item.get("created_updated_timestamp", "")).strip() if item.get("created_updated_timestamp") else None
 
-        # 1. Mandatory field checks
-        if not invoice_number:
-            item_errors.append("invoice_number is required.")
-        if not invoice_date_str:
-            item_errors.append("invoice_date is required.")
-        if total_amount_raw is None or total_amount_raw == "":
-            item_errors.append("total_amount is required.")
-        if not customer_name:
-            item_errors.append("customer_name is required.")
-        if not customer_phone:
-            item_errors.append("customer_phone is required.")
+        # --- VALIDATIONS COMMENTED OUT TO ACCEPT WHATEVER DATA COMES ---
+        # # 1. Mandatory field checks
+        # if not invoice_number:
+        #     item_errors.append("invoice_number is required.")
+        # if not invoice_date_str:
+        #     item_errors.append("invoice_date is required.")
+        # if total_amount_raw is None or total_amount_raw == "":
+        #     item_errors.append("total_amount is required.")
+        # if not customer_name:
+        #     item_errors.append("customer_name is required.")
+        # if not customer_phone:
+        #     item_errors.append("customer_phone is required.")
 
-        # 2. Check mobile number format (must be 10 digits)
-        if customer_phone and not re.match(r"^\d{10}$", customer_phone):
-            item_errors.append("customer_phone must be a valid 10-digit number.")
+        # # 2. Check mobile number format (must be 10 digits)
+        # if customer_phone and not re.match(r"^\d{10}$", customer_phone):
+        #     item_errors.append("customer_phone must be a valid 10-digit number.")
 
-        # 3. Duplicate checks
-        if invoice_number:
-            if invoice_number in payload_invoices:
-                item_errors.append(f"Duplicate invoice_number '{invoice_number}' within this request batch.")
-            else:
-                payload_invoices.add(invoice_number)
+        # # 3. Duplicate checks
+        # if invoice_number:
+        #     if invoice_number in payload_invoices:
+        #         item_errors.append(f"Duplicate invoice_number '{invoice_number}' within this request batch.")
+        #     if invoice_number in existing_db_invoices:
+        #         item_errors.append(f"Invoice number '{invoice_number}' already exists in database.")
 
-            if invoice_number in existing_db_invoices:
-                item_errors.append(f"Invoice number '{invoice_number}' already exists in database.")
-
-        # 4. Date validation
+        # Parse invoice date (fallback to today if invalid/missing)
         parsed_invoice_date = None
         if invoice_date_str:
             try:
                 parsed_invoice_date = datetime.strptime(invoice_date_str, "%Y-%m-%d").date()
             except ValueError:
-                item_errors.append("invoice_date must be in YYYY-MM-DD format.")
+                pass
+        if not parsed_invoice_date:
+            parsed_invoice_date = datetime.now().date()
 
-        # 5. Amount validation
-        parsed_total_amount = None
+        # Parse total_amount (fallback to 0.00 if invalid/missing)
+        parsed_total_amount = Decimal("0.00")
         if total_amount_raw is not None and total_amount_raw != "":
             try:
                 parsed_total_amount = Decimal(str(total_amount_raw)).quantize(Decimal("0.01"))
-                if parsed_total_amount <= Decimal("0"):
-                    item_errors.append("total_amount must be greater than zero.")
             except (InvalidOperation, TypeError, ValueError):
-                item_errors.append("total_amount must be a valid numeric decimal value.")
+                pass
 
-        # 6. Timestamp validation
+        # Parse client timestamp
         parsed_client_timestamp = None
         if timestamp_str:
             for fmt in allowed_formats:
@@ -321,36 +255,22 @@ def create_sales_bulk():
                     break
                 except ValueError:
                     continue
-            if not parsed_client_timestamp:
-                item_errors.append("created_updated_timestamp must be in a valid format (e.g. 'YYYY-MM-DD HH:MM:SS').")
 
-        if item_errors:
-            errors.append({"index": idx, "invoice_number": invoice_number or None, "errors": item_errors})
-        else:
-            validated_sales.append(Sale(
-                invoice_number=invoice_number,
-                invoice_date=parsed_invoice_date,
-                total_amount=parsed_total_amount,
-                customer_name=customer_name,
-                customer_phone=customer_phone,
-                created_updated_timestamp=parsed_client_timestamp,
-                user_id=user.id,
-                username=user.username
-            ))
-
-    if errors:
-        return jsonify({
-            "code": 400,
-            "message": "Validation failed for one or more sales entries.",
-            "error": "Validation Error",
-            "failed_count": len(errors),
-            "total_submitted": len(sales_data),
-            "details": errors
-        }), 400
+        validated_sales.append(Sale(
+            invoice_number=invoice_number or f"INV-AUTO-{idx}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
+            invoice_date=parsed_invoice_date,
+            total_amount=parsed_total_amount,
+            customer_name=customer_name or "N/A",
+            customer_phone=customer_phone,
+            created_updated_timestamp=parsed_client_timestamp,
+            user_id=user.id,
+            username=user.username
+        ))
 
     # Bulk save to database
-    db.session.add_all(validated_sales)
-    db.session.commit()
+    if validated_sales:
+        db.session.add_all(validated_sales)
+        db.session.commit()
 
     return jsonify({
         "code": 201,
@@ -361,7 +281,7 @@ def create_sales_bulk():
                 {
                     "id": str(sale.id),
                     "invoice_number": sale.invoice_number,
-                    "invoice_date": sale.invoice_date.strftime("%Y-%m-%d"),
+                    "invoice_date": sale.invoice_date.strftime("%Y-%m-%d") if sale.invoice_date else None,
                     "total_amount": str(sale.total_amount),
                     "customer_name": sale.customer_name,
                     "customer_phone": sale.customer_phone,
@@ -373,4 +293,5 @@ def create_sales_bulk():
             ]
         }
     }), 201
+
 
