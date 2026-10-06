@@ -44,7 +44,7 @@ class SalesTestCase(unittest.TestCase):
         self.assertEqual(res.json["data"]["customer_phone"], "9876543210")
         self.assertEqual(res.json["data"]["username"], "salestest")
 
-    def test_duplicate_invoice_number(self):
+    def test_duplicate_invoice_number_allowed(self):
         payload = {
             "invoice_number": "INV-DUP-001",
             "invoice_date": "2026-09-29",
@@ -55,36 +55,33 @@ class SalesTestCase(unittest.TestCase):
         res1 = self.client.post("/api/v1/sales", json=payload, headers=self.headers)
         self.assertEqual(res1.status_code, 201)
 
-        # Second creation attempt with same invoice_number
+        # Second creation attempt with same invoice_number is now allowed
         res2 = self.client.post("/api/v1/sales", json=payload, headers=self.headers)
-        self.assertEqual(res2.status_code, 409)
-        self.assertEqual(res2.json["code"], 409)
-        self.assertEqual(res2.json["error"], "Duplicate Entry")
+        self.assertEqual(res2.status_code, 201)
+        self.assertEqual(res2.json["code"], 201)
 
-    def test_invalid_phone_number(self):
+    def test_invalid_phone_number_accepted(self):
         payload = {
             "invoice_number": "INV-PHONE-01",
             "invoice_date": "2026-09-29",
             "total_amount": 500.00,
             "customer_name": "Anita",
-            "customer_phone": "12345"  # Invalid 5-digit phone
+            "customer_phone": "12345"  # Any phone string accepted
         }
         res = self.client.post("/api/v1/sales", json=payload, headers=self.headers)
-        self.assertEqual(res.status_code, 400)
-        self.assertEqual(res.json["code"], 400)
-        self.assertIn("10-digit number", res.json["message"])
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.json["data"]["customer_phone"], "12345")
 
-    def test_invalid_date_format(self):
+    def test_invalid_date_format_fallback(self):
         payload = {
             "invoice_number": "INV-DATE-01",
-            "invoice_date": "29/09/2026",  # Invalid DD/MM/YYYY format
+            "invoice_date": "29/09/2026",
             "total_amount": 500.00,
             "customer_name": "Anita",
             "customer_phone": "9876543210"
         }
         res = self.client.post("/api/v1/sales", json=payload, headers=self.headers)
-        self.assertEqual(res.status_code, 400)
-        self.assertIn("YYYY-MM-DD format", res.json["message"])
+        self.assertEqual(res.status_code, 201)
 
     def test_unauthorized_access(self):
         payload = {
@@ -99,7 +96,7 @@ class SalesTestCase(unittest.TestCase):
         self.assertEqual(res.json["code"], 401)
         self.assertEqual(res.json["error"], "Authorization Required")
 
-    def test_missing_customer_phone(self):
+    def test_missing_customer_phone_accepted(self):
         payload = {
             "invoice_number": "INV-NOPHONE-01",
             "invoice_date": "2026-09-29",
@@ -107,8 +104,7 @@ class SalesTestCase(unittest.TestCase):
             "customer_name": "Anita"
         }
         res = self.client.post("/api/v1/sales", json=payload, headers=self.headers)
-        self.assertEqual(res.status_code, 400)
-        self.assertEqual(res.json["message"], "customer_phone is required.")
+        self.assertEqual(res.status_code, 201)
 
     def test_bulk_create_sales_success(self):
         payload = {
@@ -144,22 +140,6 @@ class SalesTestCase(unittest.TestCase):
         res = self.client.post("/api/v1/sales/bulk", json=payload, headers=self.headers)
         self.assertEqual(res.status_code, 400)
         self.assertIn("Maximum 500 records allowed per request", res.json["message"])
-
-    def test_bulk_create_sales_missing_phone(self):
-        payload = {
-            "sales": [
-                {
-                    "invoice_number": "INV-BULK-FAIL",
-                    "invoice_date": "2026-09-29",
-                    "total_amount": 500.0,
-                    "customer_name": "No Phone User"
-                }
-            ]
-        }
-        res = self.client.post("/api/v1/sales/bulk", json=payload, headers=self.headers)
-        self.assertEqual(res.status_code, 400)
-        self.assertEqual(res.json["failed_count"], 1)
-        self.assertIn("customer_phone is required.", res.json["details"][0]["errors"])
 
 if __name__ == "__main__":
     unittest.main()

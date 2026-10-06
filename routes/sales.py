@@ -113,15 +113,7 @@ def create_sale():
     )
 
     db.session.add(new_sale)
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            "code": 409,
-            "message": f"Invoice number '{new_sale.invoice_number}' already exists or violates constraints.",
-            "error": "Duplicate Entry"
-        }), 409
+    db.session.commit()
 
     return jsonify({
         "code": 201,
