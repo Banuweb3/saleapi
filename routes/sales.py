@@ -66,15 +66,8 @@ def create_sale():
     # if not re.match(r"^\d{10}$", customer_phone):
     #     return jsonify({"code": 400, "message": "customer_phone must be a valid 10-digit number.", "error": "Validation Error"}), 400
 
-    # 4. Parse invoice date (fallback to today if invalid/missing)
-    parsed_invoice_date = None
-    if invoice_date_str:
-        try:
-            parsed_invoice_date = datetime.strptime(invoice_date_str, "%Y-%m-%d").date()
-        except ValueError:
-            pass
-    if not parsed_invoice_date:
-        parsed_invoice_date = datetime.now().date()
+    # 4. Use invoice_date string directly as provided by client (store whatever string comes)
+    invoice_date_val = invoice_date_str
 
     # 5. Parse total_amount (fallback to 0.00 if invalid/missing)
     parsed_total_amount = Decimal("0.00")
@@ -103,7 +96,7 @@ def create_sale():
     # Create new Sale record
     new_sale = Sale(
         invoice_number=invoice_number or f"INV-AUTO-{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
-        invoice_date=parsed_invoice_date,
+        invoice_date=invoice_date_val,
         total_amount=parsed_total_amount,
         customer_name=customer_name or "N/A",
         customer_phone=customer_phone,
@@ -121,7 +114,7 @@ def create_sale():
         "data": {
             "id": str(new_sale.id),
             "invoice_number": new_sale.invoice_number,
-            "invoice_date": new_sale.invoice_date.strftime("%Y-%m-%d") if new_sale.invoice_date else None,
+            "invoice_date": new_sale.invoice_date,
             "total_amount": str(new_sale.total_amount),
             "customer_name": new_sale.customer_name,
             "customer_phone": new_sale.customer_phone,
@@ -220,15 +213,8 @@ def create_sales_bulk():
         #     if invoice_number in existing_db_invoices:
         #         item_errors.append(f"Invoice number '{invoice_number}' already exists in database.")
 
-        # Parse invoice date (fallback to today if invalid/missing)
-        parsed_invoice_date = None
-        if invoice_date_str:
-            try:
-                parsed_invoice_date = datetime.strptime(invoice_date_str, "%Y-%m-%d").date()
-            except ValueError:
-                pass
-        if not parsed_invoice_date:
-            parsed_invoice_date = datetime.now().date()
+        # Use invoice_date string directly as provided by client (store whatever string comes)
+        invoice_date_val = invoice_date_str
 
         # Parse total_amount (fallback to 0.00 if invalid/missing)
         parsed_total_amount = Decimal("0.00")
@@ -250,7 +236,7 @@ def create_sales_bulk():
 
         validated_sales.append(Sale(
             invoice_number=invoice_number or f"INV-AUTO-{idx}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
-            invoice_date=parsed_invoice_date,
+            invoice_date=invoice_date_val,
             total_amount=parsed_total_amount,
             customer_name=customer_name or "N/A",
             customer_phone=customer_phone,
@@ -273,7 +259,7 @@ def create_sales_bulk():
                 {
                     "id": str(sale.id),
                     "invoice_number": sale.invoice_number,
-                    "invoice_date": sale.invoice_date.strftime("%Y-%m-%d") if sale.invoice_date else None,
+                    "invoice_date": sale.invoice_date,
                     "total_amount": str(sale.total_amount),
                     "customer_name": sale.customer_name,
                     "customer_phone": sale.customer_phone,

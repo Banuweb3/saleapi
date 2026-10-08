@@ -31,7 +31,7 @@ class Sale(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     invoice_number = db.Column(db.String(50), nullable=False, index=True)
-    invoice_date = db.Column(db.Date, nullable=False)
+    invoice_date = db.Column(db.String(100), nullable=True)
     total_amount = db.Column(db.Numeric(12, 2), nullable=False)
     customer_name = db.Column(db.String(150), nullable=False)
     customer_phone = db.Column(db.String(20), nullable=True)
