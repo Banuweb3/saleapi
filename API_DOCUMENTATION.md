@@ -164,6 +164,7 @@ Creates a new sale transaction record linked to the authenticated user.
 #### Request Body
 ```json
 {
+  "source_id": 1001,
   "invoice_number": "INV-2026-001",
   "invoice_date": "2026-09-29",
   "total_amount": 2450.75,
@@ -173,16 +174,17 @@ Creates a new sale transaction record linked to the authenticated user.
 }
 ```
 
-#### Field Validation Specifications
+#### Field Specifications
 
-| Field | Required | Type | Validation Rules |
+| Field | Required | Type | Validation / Behavior |
 | :--- | :--- | :--- | :--- |
-| `invoice_number` | **Yes** | String | Must be unique across all sales entries. |
-| `invoice_date` | **Yes** | String | Format: `YYYY-MM-DD` |
-| `total_amount` | **Yes** | Numeric | Greater than 0, rounded to 2 decimal places. |
-| `customer_name` | **Yes** | String | Non-empty text string. |
-| `customer_phone` | **Yes** | String | Must be **exactly 10 digits** (`^\d{10}$`). |
-| `created_updated_timestamp` | Optional | String | Timestamp string e.g. `YYYY-MM-DD HH:MM:SS` or `YYYY-MM-DDTHH:MM:SS`. |
+| `source_id` / `Source_id` | **Yes** | Integer | Mandatory source system record ID. **Must be unique**: duplicates are rejected (`409 Conflict`). Missing value returns `400 Bad Request`. |
+| `invoice_number` | Optional | String | Invoice identifier. Falls back to auto-generated string if omitted. |
+| `invoice_date` | Optional | String | Stored directly as supplied (raw string, up to 100 characters; does not fallback to current date). |
+| `total_amount` | Optional | Numeric | Decimal amount. Falls back to `0.00` if missing or invalid. |
+| `customer_name` | Optional | String | Customer name string. Falls back to `"N/A"` if omitted. |
+| `customer_phone` | Optional | String | Phone number string. |
+| `created_updated_timestamp` | Optional | String | Client timestamp string e.g. `YYYY-MM-DD HH:MM:SS` or `YYYY-MM-DDTHH:MM:SS`. |
 
 #### Success Response (`201 Created`)
 ```json
@@ -191,6 +193,7 @@ Creates a new sale transaction record linked to the authenticated user.
   "message": "Sale entry created successfully.",
   "data": {
     "id": "e9b5a8d4-53a8-4e89-9400-b6f123456789",
+    "source_id": 1001,
     "invoice_number": "INV-2026-001",
     "invoice_date": "2026-09-29",
     "total_amount": "2450.75",
@@ -198,38 +201,41 @@ Creates a new sale transaction record linked to the authenticated user.
     "customer_phone": "9876543210",
     "created_updated_timestamp": "2026-09-29 17:15:00",
     "user_id": "13492a1c-e9f1-4837-a49c-7098fdff1033",
-    "username": "admin",
-    "created_at": "2026-09-29T17:15:05.123456+00:00",
-    "updated_at": "2026-09-29T17:15:05.123456+00:00"
+    "username": "admin"
   }
 }
 ```
 
 #### Error Responses
 
-- **409 Conflict** (Duplicate Invoice Number):
-  ```json
-  {
-    "code": 409,
-    "message": "Invoice number 'INV-2026-001' already exists.",
-    "error": "Duplicate Entry"
-  }
-  ```
-
-- **400 Bad Request** (Missing/Invalid Phone Number):
+- **400 Bad Request** (Missing `source_id`):
   ```json
   {
     "code": 400,
-    "message": "customer_phone is required.",
+    "message": "source_id is required.",
     "error": "Validation Error"
   }
   ```
 
-- **400 Bad Request** (Invalid Date Format):
+- **409 Conflict** (Duplicate `source_id`):
+  ```json
+  {
+    "code": 409,
+    "message": "Sale with source_id '1001' already exists.",
+    "error": "Duplicate Entry",
+    "data": {
+      "existing_id": "e9b5a8d4-53a8-4e89-9400-b6f123456789",
+      "source_id": 1001,
+      "invoice_number": "INV-2026-001"
+    }
+  }
+  ```
+
+- **400 Bad Request** (Invalid `source_id`):
   ```json
   {
     "code": 400,
-    "message": "invoice_date must be in YYYY-MM-DD format.",
+    "message": "source_id must be a valid integer.",
     "error": "Validation Error"
   }
   ```
@@ -257,6 +263,7 @@ Batch inserts up to **500 sales entries** in a single transaction.
 {
   "sales": [
     {
+      "source_id": 2001,
       "invoice_number": "INV-2026-010",
       "invoice_date": "2026-09-29",
       "total_amount": 1500.50,
@@ -265,6 +272,7 @@ Batch inserts up to **500 sales entries** in a single transaction.
       "created_updated_timestamp": "2026-09-29 17:10:00"
     },
     {
+      "source_id": 2002,
       "invoice_number": "INV-2026-011",
       "invoice_date": "2026-09-29",
       "total_amount": 2200.00,
@@ -277,25 +285,46 @@ Batch inserts up to **500 sales entries** in a single transaction.
 
 #### Batch Constraints & Limits
 - **Maximum Records**: 500 items in `sales` array.
-- **Mandatory Fields**: `invoice_number`, `invoice_date`, `total_amount`, `customer_name`, and `customer_phone` (10 digits).
-- **Atomic Validation**: If any item fails validation or contains duplicate invoice numbers (within request or DB), the request returns `400 Bad Request` with itemized error details.
+- **Mandatory `source_id`**: Every record in the `sales` array **must** include an integer `source_id`.
+- **Duplicate Skipping (Non-Failing)**: If an item contains a `source_id` that already exists in the database or appears earlier in the same batch, **it is skipped** rather than failing the whole batch. The non-duplicate records are processed and saved.
+- **Flexible Fields**: If `invoice_number` is missing, an auto-generated invoice number is assigned. `invoice_date` is stored as provided without modification.
 
 #### Success Response (`201 Created`)
 ```json
 {
   "code": 201,
-  "message": "Successfully created 2 sales entries in bulk.",
+  "message": "Processed bulk sales: 2 created, 1 skipped.",
   "data": {
     "created_count": 2,
+    "skipped_count": 1,
+    "skipped_items": [
+      {
+        "source_id": 2001,
+        "reason": "Sale with source_id '2001' already exists in database."
+      }
+    ],
     "sales": [
       {
         "id": "e9b5a8d4-53a8-4e89-9400-b6f123456789",
+        "source_id": 2002,
         "invoice_number": "INV-2026-010",
         "invoice_date": "2026-09-29",
         "total_amount": "1500.50",
         "customer_name": "John Doe",
         "customer_phone": "9876543210",
         "created_updated_timestamp": "2026-09-29 17:10:00",
+        "user_id": "13492a1c-e9f1-4837-a49c-7098fdff1033",
+        "username": "admin"
+      },
+      {
+        "id": "f8a4b7c3-42b7-4d78-8399-a5e012345678",
+        "source_id": 2003,
+        "invoice_number": "INV-2026-011",
+        "invoice_date": "2026-09-29",
+        "total_amount": "2200.00",
+        "customer_name": "Jane Smith",
+        "customer_phone": "9123456789",
+        "created_updated_timestamp": null,
         "user_id": "13492a1c-e9f1-4837-a49c-7098fdff1033",
         "username": "admin"
       }
@@ -306,6 +335,15 @@ Batch inserts up to **500 sales entries** in a single transaction.
 
 #### Error Responses
 
+- **400 Bad Request** (Missing `source_id` on item):
+  ```json
+  {
+    "code": 400,
+    "message": "source_id is required for item at index 0.",
+    "error": "Validation Error"
+  }
+  ```
+
 - **400 Bad Request** (Limit Exceeded > 500 records):
   ```json
   {
@@ -315,23 +353,12 @@ Batch inserts up to **500 sales entries** in a single transaction.
   }
   ```
 
-- **400 Bad Request** (Itemized Validation Failure):
+- **400 Bad Request** (Invalid `source_id`):
   ```json
   {
     "code": 400,
-    "message": "Validation failed for one or more sales entries.",
-    "error": "Validation Error",
-    "failed_count": 1,
-    "total_submitted": 2,
-    "details": [
-      {
-        "index": 1,
-        "invoice_number": "INV-2026-011",
-        "errors": [
-          "customer_phone is required."
-        ]
-      }
-    ]
+    "message": "source_id 'abc' at index 1 must be a valid integer.",
+    "error": "Validation Error"
   }
   ```
 

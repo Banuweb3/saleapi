@@ -30,6 +30,7 @@ class Sale(db.Model):
     __tablename__ = "sales"
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_id = db.Column(db.BigInteger, unique=True, nullable=True, index=True)
     invoice_number = db.Column(db.String(50), nullable=False, index=True)
     invoice_date = db.Column(db.String(100), nullable=True)
     total_amount = db.Column(db.Numeric(12, 2), nullable=False)

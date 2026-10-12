@@ -37,12 +37,44 @@ def create_sale():
 
     data = request.get_json(silent=True) or {}
 
+    source_id_raw = data.get("source_id") if data.get("source_id") is not None else data.get("Source_id")
     invoice_number = str(data.get("invoice_number", "")).strip() if data.get("invoice_number") else None
     invoice_date_str = str(data.get("invoice_date", "")).strip() if data.get("invoice_date") else None
     total_amount_raw = data.get("total_amount")
     customer_name = str(data.get("customer_name", "")).strip() if data.get("customer_name") else None
     customer_phone = str(data.get("customer_phone", "")).strip() if data.get("customer_phone") else None
     timestamp_str = str(data.get("created_updated_timestamp", "")).strip() if data.get("created_updated_timestamp") else None
+
+    # Parse and validate mandatory source_id
+    if source_id_raw is None or str(source_id_raw).strip() == "":
+        return jsonify({
+            "code": 400,
+            "message": "source_id is required.",
+            "error": "Validation Error"
+        }), 400
+
+    try:
+        parsed_source_id = int(source_id_raw)
+    except (ValueError, TypeError):
+        return jsonify({
+            "code": 400,
+            "message": "source_id must be a valid integer.",
+            "error": "Validation Error"
+        }), 400
+
+    # Reject duplicates based on source_id
+    existing_sale = Sale.query.filter_by(source_id=parsed_source_id).first()
+    if existing_sale:
+        return jsonify({
+            "code": 409,
+            "message": f"Sale with source_id '{parsed_source_id}' already exists.",
+            "error": "Duplicate Entry",
+            "data": {
+                "existing_id": str(existing_sale.id),
+                "source_id": existing_sale.source_id,
+                "invoice_number": existing_sale.invoice_number
+            }
+        }), 409
 
     # --- VALIDATIONS COMMENTED OUT TO ACCEPT WHATEVER DATA COMES ---
     # # 1. Validate required fields presence
@@ -95,6 +127,7 @@ def create_sale():
 
     # Create new Sale record
     new_sale = Sale(
+        source_id=parsed_source_id,
         invoice_number=invoice_number or f"INV-AUTO-{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
         invoice_date=invoice_date_val,
         total_amount=parsed_total_amount,
@@ -113,6 +146,7 @@ def create_sale():
         "message": "Sale entry created successfully.",
         "data": {
             "id": str(new_sale.id),
+            "source_id": new_sale.source_id,
             "invoice_number": new_sale.invoice_number,
             "invoice_date": new_sale.invoice_date,
             "total_amount": str(new_sale.total_amount),
@@ -169,7 +203,53 @@ def create_sales_bulk():
             "error": "Validation Error"
         }), 400
 
-    validated_sales = []
+    # 1. Pre-extract and validate mandatory source_ids
+    valid_items_to_process = []
+    skipped_items = []
+    seen_batch_source_ids = set()
+
+    for idx, item in enumerate(sales_data):
+        if not isinstance(item, dict):
+            return jsonify({
+                "code": 400,
+                "message": f"Item at index {idx} must be an object.",
+                "error": "Validation Error"
+            }), 400
+
+        sid = item.get("source_id") if item.get("source_id") is not None else item.get("Source_id")
+        if sid is None or str(sid).strip() == "":
+            return jsonify({
+                "code": 400,
+                "message": f"source_id is required for item at index {idx}.",
+                "error": "Validation Error"
+            }), 400
+
+        try:
+            parsed_sid = int(sid)
+        except (ValueError, TypeError):
+            return jsonify({
+                "code": 400,
+                "message": f"source_id '{sid}' at index {idx} must be a valid integer.",
+                "error": "Validation Error"
+            }), 400
+
+        # Check for duplicates within this request batch
+        if parsed_sid in seen_batch_source_ids:
+            skipped_items.append({
+                "source_id": parsed_sid,
+                "reason": "Duplicate source_id within current request batch."
+            })
+            continue
+
+        seen_batch_source_ids.add(parsed_sid)
+        valid_items_to_process.append((parsed_sid, item))
+
+    # 2. Query database for existing source_ids in one batch
+    candidate_sids = [sid for sid, _ in valid_items_to_process]
+    existing_db_sids = set()
+    if candidate_sids:
+        existing_records = Sale.query.filter(Sale.source_id.in_(candidate_sids)).with_entities(Sale.source_id).all()
+        existing_db_sids = {rec[0] for rec in existing_records}
 
     allowed_formats = [
         "%Y-%m-%d %H:%M:%S",
@@ -178,8 +258,15 @@ def create_sales_bulk():
         "%Y-%m-%dT%H:%M:%S.%f"
     ]
 
-    for idx, item in enumerate(sales_data):
-        if not isinstance(item, dict):
+    validated_sales = []
+
+    for idx, (parsed_source_id, item) in enumerate(valid_items_to_process):
+        # Skip if already exists in database
+        if parsed_source_id in existing_db_sids:
+            skipped_items.append({
+                "source_id": parsed_source_id,
+                "reason": f"Sale with source_id '{parsed_source_id}' already exists in database."
+            })
             continue
 
         invoice_number = str(item.get("invoice_number", "")).strip() if item.get("invoice_number") else None
@@ -188,30 +275,6 @@ def create_sales_bulk():
         customer_name = str(item.get("customer_name", "")).strip() if item.get("customer_name") else None
         customer_phone = str(item.get("customer_phone", "")).strip() if item.get("customer_phone") else None
         timestamp_str = str(item.get("created_updated_timestamp", "")).strip() if item.get("created_updated_timestamp") else None
-
-        # --- VALIDATIONS COMMENTED OUT TO ACCEPT WHATEVER DATA COMES ---
-        # # 1. Mandatory field checks
-        # if not invoice_number:
-        #     item_errors.append("invoice_number is required.")
-        # if not invoice_date_str:
-        #     item_errors.append("invoice_date is required.")
-        # if total_amount_raw is None or total_amount_raw == "":
-        #     item_errors.append("total_amount is required.")
-        # if not customer_name:
-        #     item_errors.append("customer_name is required.")
-        # if not customer_phone:
-        #     item_errors.append("customer_phone is required.")
-
-        # # 2. Check mobile number format (must be 10 digits)
-        # if customer_phone and not re.match(r"^\d{10}$", customer_phone):
-        #     item_errors.append("customer_phone must be a valid 10-digit number.")
-
-        # # 3. Duplicate checks
-        # if invoice_number:
-        #     if invoice_number in payload_invoices:
-        #         item_errors.append(f"Duplicate invoice_number '{invoice_number}' within this request batch.")
-        #     if invoice_number in existing_db_invoices:
-        #         item_errors.append(f"Invoice number '{invoice_number}' already exists in database.")
 
         # Use invoice_date string directly as provided by client (store whatever string comes)
         invoice_date_val = invoice_date_str
@@ -235,6 +298,7 @@ def create_sales_bulk():
                     continue
 
         validated_sales.append(Sale(
+            source_id=parsed_source_id,
             invoice_number=invoice_number or f"INV-AUTO-{idx}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
             invoice_date=invoice_date_val,
             total_amount=parsed_total_amount,
@@ -245,19 +309,22 @@ def create_sales_bulk():
             username=user.username
         ))
 
-    # Bulk save to database
+    # Bulk save non-duplicate sales to database
     if validated_sales:
         db.session.add_all(validated_sales)
         db.session.commit()
 
     return jsonify({
         "code": 201,
-        "message": f"Successfully created {len(validated_sales)} sales entries in bulk.",
+        "message": f"Processed bulk sales: {len(validated_sales)} created, {len(skipped_items)} skipped.",
         "data": {
             "created_count": len(validated_sales),
+            "skipped_count": len(skipped_items),
+            "skipped_items": skipped_items,
             "sales": [
                 {
                     "id": str(sale.id),
+                    "source_id": sale.source_id,
                     "invoice_number": sale.invoice_number,
                     "invoice_date": sale.invoice_date,
                     "total_amount": str(sale.total_amount),
