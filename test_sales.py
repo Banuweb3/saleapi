@@ -221,6 +221,25 @@ class SalesTestCase(unittest.TestCase):
         created_sids = [s["source_id"] for s in res.json["data"]["sales"]]
         self.assertEqual(created_sids, [2002, 2003])
 
+    def test_bulk_validation_failure_items_skipped(self):
+        # Items with missing source_id, invalid source_id, non-object item should be skipped
+        # while valid items in the same batch are successfully created
+        payload_batch = {
+            "sales": [
+                {"invoice_number": "INV-NO-SID"},                     # missing source_id -> skipped
+                {"source_id": "not_an_int", "invoice_number": "INV-BAD-SID"}, # invalid integer -> skipped
+                "not_a_dictionary_item",                              # invalid type -> skipped
+                {"source_id": 5001, "invoice_number": "INV-VALID-01"}, # valid -> created
+                {"source_id": 5002, "invoice_number": "INV-VALID-02"}  # valid -> created
+            ]
+        }
+        res = self.client.post("/api/v1/sales/bulk", json=payload_batch, headers=self.headers)
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.json["data"]["created_count"], 2)
+        self.assertEqual(res.json["data"]["skipped_count"], 3)
+        created_sids = [s["source_id"] for s in res.json["data"]["sales"]]
+        self.assertEqual(created_sids, [5001, 5002])
+
 if __name__ == "__main__":
     unittest.main()
 

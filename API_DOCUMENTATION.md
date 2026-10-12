@@ -285,9 +285,8 @@ Batch inserts up to **500 sales entries** in a single transaction.
 
 #### Batch Constraints & Limits
 - **Maximum Records**: 500 items in `sales` array.
-- **Mandatory `source_id`**: Every record in the `sales` array **must** include an integer `source_id`.
-- **Duplicate Skipping (Non-Failing)**: If an item contains a `source_id` that already exists in the database or appears earlier in the same batch, **it is skipped** rather than failing the whole batch. The non-duplicate records are processed and saved.
-- **Flexible Fields**: If `invoice_number` is missing, an auto-generated invoice number is assigned. `invoice_date` is stored as provided without modification.
+- **Item-Level Fault Isolation**: If an individual item fails validation (e.g. missing `source_id`, non-integer `source_id`, non-object item) or is a duplicate, **only that item is skipped**. The remaining valid items in the batch are processed and saved normally.
+- **Flexible Fields**: If `invoice_number` is missing on a valid item, an auto-generated invoice number is assigned. `invoice_date` is stored as provided without modification.
 
 #### Success Response (`201 Created`)
 ```json
@@ -299,8 +298,9 @@ Batch inserts up to **500 sales entries** in a single transaction.
     "skipped_count": 1,
     "skipped_items": [
       {
-        "source_id": 2001,
-        "reason": "Sale with source_id '2001' already exists in database."
+        "index": 0,
+        "source_id": null,
+        "reason": "source_id is required for item at index 0."
       }
     ],
     "sales": [
@@ -335,11 +335,11 @@ Batch inserts up to **500 sales entries** in a single transaction.
 
 #### Error Responses
 
-- **400 Bad Request** (Missing `source_id` on item):
+- **400 Bad Request** (Empty `sales` list):
   ```json
   {
     "code": 400,
-    "message": "source_id is required for item at index 0.",
+    "message": "The 'sales' list cannot be empty.",
     "error": "Validation Error"
   }
   ```
@@ -349,15 +349,6 @@ Batch inserts up to **500 sales entries** in a single transaction.
   {
     "code": 400,
     "message": "Bulk creation limit exceeded. Maximum 500 records allowed per request (received 501).",
-    "error": "Validation Error"
-  }
-  ```
-
-- **400 Bad Request** (Invalid `source_id`):
-  ```json
-  {
-    "code": 400,
-    "message": "source_id 'abc' at index 1 must be a valid integer.",
     "error": "Validation Error"
   }
   ```

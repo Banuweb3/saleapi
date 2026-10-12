@@ -203,49 +203,53 @@ def create_sales_bulk():
             "error": "Validation Error"
         }), 400
 
-    # 1. Pre-extract and validate mandatory source_ids
+    # 1. Pre-extract and validate mandatory source_ids (skip invalid items individually)
     valid_items_to_process = []
     skipped_items = []
     seen_batch_source_ids = set()
 
     for idx, item in enumerate(sales_data):
         if not isinstance(item, dict):
-            return jsonify({
-                "code": 400,
-                "message": f"Item at index {idx} must be an object.",
-                "error": "Validation Error"
-            }), 400
+            skipped_items.append({
+                "index": idx,
+                "source_id": None,
+                "reason": f"Item at index {idx} must be an object."
+            })
+            continue
 
         sid = item.get("source_id") if item.get("source_id") is not None else item.get("Source_id")
         if sid is None or str(sid).strip() == "":
-            return jsonify({
-                "code": 400,
-                "message": f"source_id is required for item at index {idx}.",
-                "error": "Validation Error"
-            }), 400
+            skipped_items.append({
+                "index": idx,
+                "source_id": None,
+                "reason": f"source_id is required for item at index {idx}."
+            })
+            continue
 
         try:
             parsed_sid = int(sid)
         except (ValueError, TypeError):
-            return jsonify({
-                "code": 400,
-                "message": f"source_id '{sid}' at index {idx} must be a valid integer.",
-                "error": "Validation Error"
-            }), 400
+            skipped_items.append({
+                "index": idx,
+                "source_id": str(sid),
+                "reason": f"source_id '{sid}' at index {idx} must be a valid integer."
+            })
+            continue
 
         # Check for duplicates within this request batch
         if parsed_sid in seen_batch_source_ids:
             skipped_items.append({
+                "index": idx,
                 "source_id": parsed_sid,
                 "reason": "Duplicate source_id within current request batch."
             })
             continue
 
         seen_batch_source_ids.add(parsed_sid)
-        valid_items_to_process.append((parsed_sid, item))
+        valid_items_to_process.append((idx, parsed_sid, item))
 
     # 2. Query database for existing source_ids in one batch
-    candidate_sids = [sid for sid, _ in valid_items_to_process]
+    candidate_sids = [sid for _, sid, _ in valid_items_to_process]
     existing_db_sids = set()
     if candidate_sids:
         existing_records = Sale.query.filter(Sale.source_id.in_(candidate_sids)).with_entities(Sale.source_id).all()
@@ -260,10 +264,11 @@ def create_sales_bulk():
 
     validated_sales = []
 
-    for idx, (parsed_source_id, item) in enumerate(valid_items_to_process):
+    for item_idx, parsed_source_id, item in valid_items_to_process:
         # Skip if already exists in database
         if parsed_source_id in existing_db_sids:
             skipped_items.append({
+                "index": item_idx,
                 "source_id": parsed_source_id,
                 "reason": f"Sale with source_id '{parsed_source_id}' already exists in database."
             })
