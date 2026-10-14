@@ -35,6 +35,11 @@ def create_sale():
             "error": "Unauthorized"
         }), 401
 
+    # Extract plain Python scalars once — avoids SQLAlchemy ORM descriptor
+    # access on a session-bound object after later processing steps
+    current_user_id_val = str(user.id)
+    current_username_val = str(user.username)
+
     data = request.get_json(silent=True) or {}
 
     source_id_raw = data.get("source_id") if data.get("source_id") is not None else data.get("Source_id")
@@ -134,8 +139,8 @@ def create_sale():
         customer_name=customer_name or "N/A",
         customer_phone=customer_phone,
         created_updated_timestamp=parsed_client_timestamp,
-        user_id=user.id,
-        username=user.username
+        user_id=current_user_id_val,
+        username=current_username_val
     )
 
     db.session.add(new_sale)
@@ -177,6 +182,11 @@ def create_sales_bulk():
             "message": "User account is invalid or disabled.",
             "error": "Unauthorized"
         }), 401
+
+    # Extract plain Python scalars once — avoids repeated ORM descriptor access
+    # inside a large loop which can trigger SQLAlchemy/Python 3.14 issues
+    current_user_id_val = str(user.id)
+    current_username_val = str(user.username)
 
     payload = request.get_json(silent=True) or {}
     sales_data = payload.get("sales")
@@ -304,14 +314,14 @@ def create_sales_bulk():
 
         validated_sales.append(Sale(
             source_id=parsed_source_id,
-            invoice_number=invoice_number or f"INV-AUTO-{idx}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
+            invoice_number=invoice_number or f"INV-AUTO-{item_idx}-{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
             invoice_date=invoice_date_val,
             total_amount=parsed_total_amount,
             customer_name=customer_name or "N/A",
             customer_phone=customer_phone,
             created_updated_timestamp=parsed_client_timestamp,
-            user_id=user.id,
-            username=user.username
+            user_id=current_user_id_val,
+            username=current_username_val
         ))
 
     # Bulk save non-duplicate sales to database

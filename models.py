@@ -53,5 +53,8 @@ class Sale(db.Model):
         nullable=False
     )
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
     def __repr__(self):
         return f"<Sale {self.invoice_number} - {self.total_amount}>"
