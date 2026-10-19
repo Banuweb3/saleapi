@@ -40,9 +40,15 @@ def create_sale():
     current_user_id_val = str(user.id)
     current_username_val = str(user.username)
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({
+            "code": 400,
+            "message": "Request body must be a JSON object, not an array or other type.",
+            "error": "Invalid Request Body"
+        }), 400
 
-    source_id_raw = data.get("source_id") if data.get("source_id") is not None else data.get("Source_id")
+    source_id_raw = str(data.get("source_id","")).strip() if data.get("source_id") is not None else data.get("Source_id")
     invoice_number = str(data.get("invoice_number", "")).strip() if data.get("invoice_number") else None
     invoice_date_str = str(data.get("invoice_date", "")).strip() if data.get("invoice_date") else None
     total_amount_raw = data.get("total_amount")
